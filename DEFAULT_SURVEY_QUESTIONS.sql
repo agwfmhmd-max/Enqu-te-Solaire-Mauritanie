@@ -8,7 +8,7 @@
 
 -- 0) Création du sondage (si absent)
 insert into public.surveys (slug, title_ar, title_fr, active)
-select 'solar-payg-mauritanie-2027', 'استبيان حول تمويل الطاقة الشمسية بالدفع المسبق (PAYG) في موريتانيا', 'Enquête sur le financement PAYG de l’énergie solaire en Mauritanie', true
+select 'solar-payg-mauritanie-2027', 'دراسة جدوى لشركة تمويل الطاقة الشمسية بالدفع المسبق (PAYG) في موريتانيا', 'Étude de faisabilité d’une entreprise de financement PAYG de l’énergie solaire en Mauritanie', true
 where not exists (select 1 from public.surveys where slug = 'solar-payg-mauritanie-2027');
 
 -- 1) Questions
@@ -37,7 +37,7 @@ cross join (values
   ('ما أبرز العوائق أمام اقتناء نظام شمسي بالتقسيط؟', 'Quels sont les principaux freins à l’achat d’un kit solaire en paiement échelonné ?', 'multiple_choice', true, 16),
   ('ما العامل الأهم عند اختيار مزود الطاقة الشمسية؟', 'Quel facteur est le plus important dans le choix d’un fournisseur solaire ?', 'single_choice', true, 17),
   ('ما اقتراحك أو ملاحظتك حول تمويل الطاقة الشمسية بالدفع المسبق؟', 'Quelle est votre suggestion concernant le financement solaire PAYG ?', 'text', false, 18)
-) as seed(question_ar, question_fr, question_type, required, sort_order) on true
+) as seed(question_ar, question_fr, question_type, required, sort_order)
 where s.slug = 'solar-payg-mauritanie-2027'
   and s.active = true
   and not exists (
