@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">ISCAE Solar PAYG Research</title>
+  <desc id="desc">Shield protecting a sun above a solar panel, with a mobile-payment signal arc</desc>
+  <defs>
+    <linearGradient id="shield" x1="40" y1="24" x2="208" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2e78c9"/>
+      <stop offset="1" stop-color="#0b1e39"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="66" y1="170" x2="190" y2="217" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d2ac52"/>
+      <stop offset="1" stop-color="#a87d2f"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="100" y1="50" x2="156" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe08a"/>
+      <stop offset="1" stop-color="#e2a52f"/>
+    </linearGradient>
+  </defs>
+  <path d="M128 17c29 23 60 35 96 41v63c0 56-34 99-96 121-62-22-96-65-96-121V58c36-6 67-18 96-41Z" fill="#fff" stroke="#0b1e39" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M128 34c26 19 54 30 81 36v51c0 45-25 80-81 102-56-22-81-57-81-102V70c27-6 55-17 81-36Z" fill="url(#shield)"/>
+  <g stroke="#ffe08a" stroke-width="5" stroke-linecap="round">
+    <path d="M128 48v10M97 61l7 7M159 61l-7 7M84 90h10M172 90h-10"/>
+  </g>
+  <circle cx="128" cy="90" r="22" fill="url(#sun)" stroke="#fff3c9" stroke-width="3"/>
+  <path d="M82 190l14-52h64l14 52Z" fill="#1d9a70" stroke="#b8efcf" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M93 164h70M88 177h80M114 138l-6 52M142 138l6 52M128 138v52" stroke="#b8efcf" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M128 190v14" stroke="#b8efcf" stroke-width="5" stroke-linecap="round"/>
+  <path d="M67 210c23 9 43 14 61 16 18-2 38-7 61-16" fill="none" stroke="url(#gold)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M78 224c18 6 35 10 50 12 15-2 32-6 50-12" fill="none" stroke="#e2bd61" stroke-width="5" stroke-linecap="round"/>
+</svg>
