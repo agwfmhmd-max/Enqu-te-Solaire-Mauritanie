@@ -10,3 +10,6 @@ Questions de départ : `DEFAULT_SURVEY_QUESTIONS.sql` (crée aussi le sondage s�
 Accès public du prototype aux résultats : `PROTOTYPE_PUBLIC_ACCESS.sql`.
 
 Exécuter `npm install` puis `npm run build` avant le déploiement.
+
+## Intégration étude de marché
+La migration `MARKET_VALIDATION_QUESTIONS.sql` ajoute les tranches de revenu et les seuils de prix acceptables. Le prototype lit les vues agrégées Supabase du même sondage, affiche les résultats de l’échantillon et distingue les hypothèses du modèle. Le paiement mobile et le scoring restent des simulations de faisabilité.
