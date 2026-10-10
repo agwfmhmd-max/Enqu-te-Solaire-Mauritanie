@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Calendar, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, CloudRain, Eye, EyeOff, Globe2, GripVertical, ImagePlus, Info, Languages, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, Save, ShieldCheck, Sprout, Sun, Trash2, TrendingUp, UserPlus, Users, UsersRound, X, Zap } from "lucide-react";
+import { BarChart3, Calendar, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download, Eye, EyeOff, FileText, Globe2, GripVertical, History, ImagePlus, Info, Languages, LockKeyhole, LogOut, Moon, Pencil, Plus, RefreshCw, Save, ShieldCheck, Sprout, Sun, Trash2, TrendingUp, Upload, UserPlus, Users, UsersRound, X, Zap } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import TeamSection from "./components/TeamSection.jsx";
+import { ADMIN_PROFILES, findAdminProfileByEmail, isMainAdminEmail } from "./lib/adminProfiles";
+import { logAdminActivity } from "./lib/adminActivity";
+import { exportQuestionsToDocx, parseQuestionsFromDocx } from "./lib/questionsWord";
 
 const COLORS = {
   navy: "#0b1e39",
@@ -24,6 +27,7 @@ const COLORS = {
 const PIE_COLORS = [COLORS.blue, COLORS.sky, COLORS.gold, COLORS.green, "#8b78b8", "#d67b55"];
 const SURVEY_SLUG = "solar-payg-mauritanie-2027";
 const SUBMITTED_STORAGE_KEY = `survey_submitted_${SURVEY_SLUG}`;
+const THEME_STORAGE_KEY = "survey_theme";
 const ADMIN_TRIGGER_CLICKS = 5;
 const ADMIN_TRIGGER_WINDOW_MS = 3000;
 // Mauritania uses a fixed UTC+0 offset year-round (no daylight saving), but we
@@ -71,6 +75,14 @@ function cleanVisibleText(value) {
 
 function normalizeForComparison(value) {
   return cleanVisibleText(value).normalize("NFKC").replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function getInitialTheme() {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch { /* storage unavailable */ }
+  try { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; } catch { return "light"; }
 }
 
 function hasStoredSubmission() {
@@ -148,7 +160,6 @@ const T = {
     signOut: "Se déconnecter",
     questions: "Questions",
     results: "Résultats",
-    weather: "Météo",
     participants: "Participants",
     activeQuestions: "Questions actives",
     completion: "Taux de complétion",
@@ -175,8 +186,6 @@ const T = {
     moveDown: "Descendre",
     noQuestions: "Aucune question n’est encore configurée.",
     noResults: "Aucun résultat agrégé disponible.",
-    noWeather: "Aucune région météo configurée.",
-    addWeatherHint: "Les régions peuvent être ajoutées depuis Supabase sans modifier l’interface.",
     unknownError: "Une erreur est survenue.",
     footer: "Étude de faisabilité d’une entreprise de financement PAYG de l’énergie solaire en Mauritanie · ISCAE",
     developedBy: "Développé par MDA",
@@ -207,6 +216,65 @@ const T = {
     loadingStats: "Chargement des statistiques…",
     statsError: "Impossible de charger les statistiques pour le moment.",
     hourLabel: "h",
+    adminNameLabel: "Responsable",
+    adminNamePlaceholder: "— Sélectionnez votre nom —",
+    adminChooseName: "Veuillez sélectionner votre nom dans la liste.",
+    adminEmailMissing: "L’adresse e-mail de ce responsable n’est pas encore configurée.",
+    adminLoggedAs: "Connecté en tant que",
+    darkMode: "Mode sombre",
+    lightMode: "Mode clair",
+    editAnswer: "Modifier ma réponse",
+    editLoading: "Chargement de votre réponse…",
+    editUnavailable: "Impossible de charger votre réponse pour la modifier. Réessayez plus tard.",
+    editBanner: "Vous modifiez votre réponse déjà envoyée. Vos choix précédents ont été rechargés ; modifiez-les puis enregistrez.",
+    cancelEdit: "Annuler la modification",
+    saveEdit: "Enregistrer les modifications",
+    updatedEyebrow: "Réponse modifiée",
+    updatedText: "Votre réponse a été modifiée avec succès. Merci pour votre contribution à cette étude académique.",
+    wordTools: "Fichier Word des questions",
+    wordToolsText: "Téléchargez toutes les questions au format Word, ou importez un fichier Word pour ajouter de nouvelles questions (les questions déjà présentes ne sont pas dupliquées).",
+    downloadWord: "Télécharger (.docx)",
+    uploadWord: "Importer un fichier Word",
+    wordReading: "Lecture du fichier Word…",
+    wordExportError: "Impossible de générer le fichier Word.",
+    wordImportError: "Impossible de lire ce fichier Word. Utilisez un fichier .docx au format du modèle téléchargé.",
+    wordPreviewTitle: "Aperçu de l’import",
+    wordPreviewNew: "question(s) à importer",
+    wordPreviewDup: "question(s) déjà présente(s), ignorée(s)",
+    wordPreviewErr: "bloc(s) ignoré(s) car invalide(s)",
+    wordImportConfirm: "Confirmer l’import",
+    wordImportEmpty: "Aucune nouvelle question à importer.",
+    wordImported: "question(s) importée(s) avec succès.",
+    activity: "Journal d’activité",
+    activityTitle: "Journal d’activité des responsables",
+    activitySubtitle: "Visible uniquement par le responsable principal : connexions, déconnexions et modifications effectuées par les autres responsables.",
+    activityRefresh: "Actualiser",
+    activityLoading: "Chargement du journal…",
+    activityError: "Impossible de charger le journal. Vérifiez que ADMIN_SECURITY_AND_FEATURES.sql a été exécuté.",
+    activityEmpty: "Aucune activité enregistrée.",
+    activityAllAdmins: "Tous les responsables",
+    activityAllTypes: "Toutes les actions",
+    activityOnlyLogins: "Connexions / déconnexions",
+    activityOnlyEdits: "Modifications",
+    activityLastLogin: "Dernière connexion",
+    activityNever: "Jamais",
+    activityActionsCount: "action(s)",
+    activityChange: "Modification",
+    activityBefore: "Avant",
+    activityAfter: "Après",
+    act_login: "Connexion",
+    act_logout: "Déconnexion",
+    act_question_create: "Question ajoutée",
+    act_question_update: "Question modifiée",
+    act_question_toggle: "Question activée / désactivée",
+    act_question_delete: "Question supprimée",
+    act_question_reorder: "Question déplacée",
+    act_questions_seed: "Questions académiques importées",
+    act_questions_import_word: "Questions importées depuis Word",
+    act_questions_export_word: "Questions téléchargées en Word",
+    act_team_member_create: "Membre ajouté",
+    act_team_member_update: "Membre modifié",
+    act_team_member_disable: "Membre désactivé",
   },
   ar: {
     dir: "rtl",
@@ -278,7 +346,6 @@ const T = {
     signOut: "تسجيل الخروج",
     questions: "الأسئلة",
     results: "النتائج",
-    weather: "الطقس",
     participants: "المشاركون",
     activeQuestions: "الأسئلة النشطة",
     completion: "نسبة الإكمال",
@@ -305,8 +372,6 @@ const T = {
     moveDown: "تحريك للأسفل",
     noQuestions: "لا توجد أسئلة مُهيأة بعد.",
     noResults: "لا تتوفر نتائج مجمعة بعد.",
-    noWeather: "لا توجد مناطق طقس مُهيأة.",
-    addWeatherHint: "يمكن إضافة المناطق من Supabase دون تعديل الواجهة.",
     unknownError: "حدث خطأ غير متوقع.",
     footer: "دراسة جدوى شركة تمويل الطاقة الشمسية بالدفع المسبق (PAYG) في موريتانيا · المعهد العالي للمحاسبة وإدارة المؤسسات",
     developedBy: "Développé par MDA",
@@ -337,6 +402,65 @@ const T = {
     loadingStats: "جارٍ تحميل الإحصائيات…",
     statsError: "تعذّر تحميل الإحصائيات حاليًا.",
     hourLabel: "س",
+    adminNameLabel: "المشرف",
+    adminNamePlaceholder: "— اختر اسمك —",
+    adminChooseName: "يرجى اختيار اسمك من القائمة.",
+    adminEmailMissing: "لم يتم إعداد البريد الإلكتروني لهذا المشرف بعد.",
+    adminLoggedAs: "مسجّل الدخول باسم",
+    darkMode: "الوضع الداكن",
+    lightMode: "الوضع الفاتح",
+    editAnswer: "تعديل إجابتي",
+    editLoading: "جارٍ تحميل إجابتك…",
+    editUnavailable: "تعذّر تحميل إجابتك لتعديلها. حاول لاحقًا.",
+    editBanner: "أنت تعدّل إجابتك التي أرسلتها سابقًا. تمت إعادة تحميل اختياراتك السابقة؛ عدّلها ثم احفظ.",
+    cancelEdit: "إلغاء التعديل",
+    saveEdit: "حفظ التعديلات",
+    updatedEyebrow: "تم تعديل الإجابة",
+    updatedText: "تم تعديل إجابتك بنجاح. نشكركم على مساهمتكم في هذه الدراسة الأكاديمية.",
+    wordTools: "ملف Word للأسئلة",
+    wordToolsText: "نزّل جميع الأسئلة بصيغة Word، أو ارفع ملف Word لإضافة أسئلة جديدة (الأسئلة الموجودة مسبقًا لا يتم تكرارها).",
+    downloadWord: "تنزيل (.docx)",
+    uploadWord: "رفع ملف Word",
+    wordReading: "جارٍ قراءة ملف Word…",
+    wordExportError: "تعذّر إنشاء ملف Word.",
+    wordImportError: "تعذّرت قراءة هذا الملف. استخدم ملف .docx بنفس صيغة النموذج الذي تم تنزيله.",
+    wordPreviewTitle: "معاينة الاستيراد",
+    wordPreviewNew: "سؤال سيتم استيراده",
+    wordPreviewDup: "سؤال موجود مسبقًا وتم تجاهله",
+    wordPreviewErr: "كتلة تم تجاهلها لأنها غير صالحة",
+    wordImportConfirm: "تأكيد الاستيراد",
+    wordImportEmpty: "لا توجد أسئلة جديدة للاستيراد.",
+    wordImported: "سؤال تم استيراده بنجاح.",
+    activity: "سجل النشاط",
+    activityTitle: "سجل نشاط المشرفين",
+    activitySubtitle: "يظهر للمشرف الرئيسي فقط: تسجيلات الدخول والخروج والتعديلات التي أجراها المشرفون الآخرون.",
+    activityRefresh: "تحديث",
+    activityLoading: "جارٍ تحميل السجل…",
+    activityError: "تعذّر تحميل السجل. تأكد من تنفيذ ملف ADMIN_SECURITY_AND_FEATURES.sql.",
+    activityEmpty: "لا يوجد نشاط مسجّل.",
+    activityAllAdmins: "جميع المشرفين",
+    activityAllTypes: "جميع الإجراءات",
+    activityOnlyLogins: "الدخول / الخروج",
+    activityOnlyEdits: "التعديلات",
+    activityLastLogin: "آخر دخول",
+    activityNever: "لم يدخل بعد",
+    activityActionsCount: "إجراء",
+    activityChange: "التعديل",
+    activityBefore: "قبل",
+    activityAfter: "بعد",
+    act_login: "تسجيل دخول",
+    act_logout: "تسجيل خروج",
+    act_question_create: "إضافة سؤال",
+    act_question_update: "تعديل سؤال",
+    act_question_toggle: "تفعيل / تعطيل سؤال",
+    act_question_delete: "حذف سؤال",
+    act_question_reorder: "تغيير ترتيب سؤال",
+    act_questions_seed: "إدراج الأسئلة الأكاديمية الجاهزة",
+    act_questions_import_word: "استيراد أسئلة من ملف Word",
+    act_questions_export_word: "تنزيل الأسئلة بصيغة Word",
+    act_team_member_create: "إضافة عضو",
+    act_team_member_update: "تعديل عضو",
+    act_team_member_disable: "تعطيل عضو",
   },
 };
 
@@ -420,7 +544,7 @@ function TimeSeriesChart({ data, emptyLabel, height = 200, barColor = COLORS.blu
   return (
     <div className="chart-scroll">
       <svg viewBox={`0 0 ${width} ${chartHeight}`} className="ts-chart" role="img" aria-label="chart" preserveAspectRatio="xMinYMid meet">
-        <line x1="0" y1={chartHeight - bottomPad} x2={width} y2={chartHeight - bottomPad} stroke={COLORS.border} strokeWidth="1" />
+        <line className="ts-axis" x1="0" y1={chartHeight - bottomPad} x2={width} y2={chartHeight - bottomPad} stroke={COLORS.border} strokeWidth="1" />
         {data.map((item, index) => {
           const x = index * slot + (slot - barWidth) / 2;
           const usableHeight = chartHeight - topPad - bottomPad;
@@ -429,8 +553,8 @@ function TimeSeriesChart({ data, emptyLabel, height = 200, barColor = COLORS.blu
           return (
             <g key={`${item.label}-${index}`}>
               <rect x={x} y={y} width={barWidth} height={barHeight} rx={5} fill={barColor} opacity={item.value ? 1 : 0.25} />
-              {item.value > 0 && <text x={x + barWidth / 2} y={y - 6} textAnchor="middle" fontSize="10" fontWeight="700" fill={COLORS.ink}>{item.value}</text>}
-              <text x={x + barWidth / 2} y={chartHeight - 9} textAnchor="middle" fontSize="9" fill={COLORS.muted}>{item.label}</text>
+              {item.value > 0 && <text x={x + barWidth / 2} y={y - 6} className="ts-value" textAnchor="middle" fontSize="10" fontWeight="700" fill={COLORS.ink}>{item.value}</text>}
+              <text className="ts-label" x={x + barWidth / 2} y={chartHeight - 9} textAnchor="middle" fontSize="9" fill={COLORS.muted}>{item.label}</text>
             </g>
           );
         })}
@@ -572,13 +696,89 @@ function ParticipantStatsPanel({ lang, t, timestamps, loading, error, participan
   );
 }
 
-function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults, results, participants, handleSignOut, handleBackToSurvey, teamMembers, setTeamMembers }) {
+const ACTIVITY_FIELD_LABELS = {
+  fr: { question_ar: "Question (AR)", question_fr: "Question (FR)", question_type: "Type", required: "Obligatoire", active: "Actif", options: "Options", position: "Position", name_ar: "Nom (AR)", name_fr: "Nom (FR)", role_ar: "Rôle (AR)", role_fr: "Rôle (FR)", image_url: "Image", sort_order: "Ordre" },
+  ar: { question_ar: "السؤال (عربي)", question_fr: "السؤال (فرنسي)", question_type: "النوع", required: "إجباري", active: "نشط", options: "الخيارات", position: "الترتيب", name_ar: "الاسم (عربي)", name_fr: "الاسم (فرنسي)", role_ar: "الدور (عربي)", role_fr: "الدور (فرنسي)", image_url: "الصورة", sort_order: "الترتيب" },
+};
+const ACTIVITY_AUTH_ACTIONS = ["login", "logout"];
+
+function formatActivityValue(value) {
+  if (value === true) return "✓";
+  if (value === false) return "✗";
+  const text = String(value ?? "").trim();
+  if (!text) return "—";
+  return text.length > 220 ? `${text.slice(0, 220)}…` : text;
+}
+
+function formatActivityTime(iso, lang) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(lang === "ar" ? "ar-u-nu-latn" : "fr-FR", { timeZone: APP_TIMEZONE, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date);
+}
+
+function ActivityLogPanel({ lang, t, rows, loading, error, adminFilter, setAdminFilter, typeFilter, setTypeFilter, onRefresh }) {
+  const names = useMemo(() => {
+    const set = new Set(ADMIN_PROFILES.map((profile) => profile.name));
+    rows.forEach((row) => row.admin_name && set.add(row.admin_name));
+    return Array.from(set);
+  }, [rows]);
+
+  const summary = useMemo(() => names.map((name) => {
+    const own = rows.filter((row) => row.admin_name === name);
+    const lastLogin = own.find((row) => row.action === "login");
+    return { name, lastLogin: lastLogin?.created_at || null, actions: own.filter((row) => !ACTIVITY_AUTH_ACTIONS.includes(row.action)).length };
+  }), [names, rows]);
+
+  const filtered = useMemo(() => rows.filter((row) => {
+    if (adminFilter !== "all" && row.admin_name !== adminFilter) return false;
+    const isAuth = ACTIVITY_AUTH_ACTIONS.includes(row.action);
+    if (typeFilter === "auth" && !isAuth) return false;
+    if (typeFilter === "edits" && isAuth) return false;
+    return true;
+  }), [rows, adminFilter, typeFilter]);
+
+  const fieldLabels = ACTIVITY_FIELD_LABELS[lang] || ACTIVITY_FIELD_LABELS.fr;
+
+  return <div className="activity-panel">
+    <Card className="activity-head-card">
+      <div className="section-title"><div className="title-icon"><History size={18} /></div><div><span className="eyebrow">{t.activity}</span><h3>{t.activityTitle}</h3></div><button type="button" className="button button-secondary" onClick={onRefresh} disabled={loading}><RefreshCw size={15} />{t.activityRefresh}</button></div>
+      <p className="activity-subtitle">{t.activitySubtitle}</p>
+      <div className="activity-summary-grid">{summary.map((item) => <div className="activity-summary-card" key={item.name}><strong>{item.name}</strong><span>{t.activityLastLogin} : {item.lastLogin ? formatActivityTime(item.lastLogin, lang) : t.activityNever}</span><small>{item.actions} {t.activityActionsCount}</small></div>)}</div>
+      <div className="activity-filters">
+        <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)}><option value="all">{t.activityAllAdmins}</option>{names.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}><option value="all">{t.activityAllTypes}</option><option value="auth">{t.activityOnlyLogins}</option><option value="edits">{t.activityOnlyEdits}</option></select>
+      </div>
+    </Card>
+    {loading && <div className="loading-state compact"><span className="spinner" />{t.activityLoading}</div>}
+    {!loading && error && <div className="inline-error" role="alert"><Info size={16} />{error}</div>}
+    {!loading && !error && filtered.length === 0 && <Card><div className="empty-state"><History size={28} /><p>{t.activityEmpty}</p></div></Card>}
+    {!loading && !error && filtered.length > 0 && <div className="activity-list">{filtered.map((row) => {
+      const changes = Array.isArray(row.details?.changes) ? row.details.changes : [];
+      const isAuth = ACTIVITY_AUTH_ACTIONS.includes(row.action);
+      return <Card key={row.id} className={`activity-row${isAuth ? " is-auth" : ""}`}>
+        <div className="activity-row-top"><span className="activity-admin-badge">{row.admin_name}</span><strong>{t[`act_${row.action}`] || row.action}</strong><time>{formatActivityTime(row.created_at, lang)}</time></div>
+        {row.target && !isAuth && <div className="activity-target">{row.target}</div>}
+        {changes.length > 0 && <ul className="activity-changes">{changes.map((change, index) => <li key={index}><b>{fieldLabels[change.field] || change.field}</b><span className="activity-before">{t.activityBefore} : {formatActivityValue(change.from)}</span><span className="activity-after">{t.activityAfter} : {formatActivityValue(change.to)}</span></li>)}</ul>}
+        {changes.length === 0 && row.action === "questions_import_word" && Array.isArray(row.details?.questions) && <ul className="activity-changes">{row.details.questions.slice(0, 30).map((text, index) => <li key={index}><span>{formatActivityValue(text)}</span></li>)}</ul>}
+      </Card>;
+    })}</div>}
+  </div>;
+}
+
+function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults, results, participants, handleSignOut, handleBackToSurvey, teamMembers, setTeamMembers, adminName, isMainAdmin }) {
   const [tab, setTab] = useState("stats");
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [adminError, setAdminError] = useState(null);
   const [form, setForm] = useState({ question_ar: "", question_fr: "", question_type: "single_choice", required: true, active: true, options: [{ label_ar: "", label_fr: "", value: "", sort_order: 1 }] });
-  const [weatherLocations, setWeatherLocations] = useState([]);
+  const [wordBusy, setWordBusy] = useState(false);
+  const [wordPreview, setWordPreview] = useState(null);
+  const [wordMessage, setWordMessage] = useState(null);
+  const [activityRows, setActivityRows] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState(null);
+  const [activityAdminFilter, setActivityAdminFilter] = useState("all");
+  const [activityTypeFilter, setActivityTypeFilter] = useState("all");
   const [editingMember, setEditingMember] = useState(null);
   const [memberForm, setMemberForm] = useState({ name_ar: "", name_fr: "", role_ar: "", role_fr: "", image_url: "", sort_order: 1, active: true });
   const [responseTimestamps, setResponseTimestamps] = useState([]);
@@ -601,6 +801,22 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
     } finally { setStatsLoading(false); }
   }, [survey, t.statsError]);
   useEffect(() => { if (tab === "stats") loadResponseTimestamps(); }, [tab, loadResponseTimestamps]);
+
+  const logActivity = useCallback((action, target, details) => logAdminActivity(supabase, action, target, details), []);
+
+  const loadActivity = useCallback(async () => {
+    if (!isMainAdmin) return;
+    setActivityLoading(true); setActivityError(null);
+    try {
+      const { data, error } = await supabase.from("admin_activity_log").select("id, admin_id, admin_name, admin_email, action, target, details, created_at").order("created_at", { ascending: false }).limit(1000);
+      if (error) throw error;
+      setActivityRows(data || []);
+    } catch (error) {
+      console.error("[admin-activity-load]", error);
+      setActivityError(t.activityError);
+    } finally { setActivityLoading(false); }
+  }, [isMainAdmin, t.activityError]);
+  useEffect(() => { if (tab === "activity") loadActivity(); }, [tab, loadActivity]);
 
   const activeQuestions = questions.filter((q) => q.active).length;
   const duplicateQuestionIds = new Set();
@@ -652,6 +868,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
         }
       }
       await reloadQuestions();
+      logActivity("questions_seed", t.readyQuestions, { count: DEFAULT_QUESTIONS.length });
     } catch (error) {
       console.error("[survey-admin-seed]", error);
       setAdminError(error?.message || t.unknownError);
@@ -683,6 +900,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
       if (adminErrorResponse) throw adminErrorResponse;
       if (!admin) throw new Error("ADMIN_REQUIRED");
       let questionId = editing;
+      const previousQuestion = editing ? questions.find((item) => item.id === editing) : null;
       if (editing) {
         const { error } = await supabase.from("survey_questions").update({ question_ar: cleanQuestionAr, question_fr: cleanQuestionFr, question_type: form.question_type, required: form.required, active: form.active }).eq("id", editing);
         if (error) throw error;
@@ -699,6 +917,20 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
         const { error } = await supabase.from("survey_options").insert(options.map((o) => ({ ...o, question_id: questionId })));
         if (error) throw error;
       }
+      if (previousQuestion) {
+        const describeOptions = (list) => (list || []).map((o) => `${o.label_ar} | ${o.label_fr} | ${o.value}`).join(" ; ");
+        const changes = [];
+        const pushChange = (field, from, to) => { if (String(from ?? "") !== String(to ?? "")) changes.push({ field, from: from ?? "", to: to ?? "" }); };
+        pushChange("question_ar", previousQuestion.question_ar, cleanQuestionAr);
+        pushChange("question_fr", previousQuestion.question_fr, cleanQuestionFr);
+        pushChange("question_type", previousQuestion.question_type, form.question_type);
+        pushChange("required", previousQuestion.required, form.required);
+        pushChange("active", previousQuestion.active, form.active);
+        if (choiceQuestion) pushChange("options", describeOptions(previousQuestion.options), describeOptions(options));
+        logActivity("question_update", previousQuestion.question_fr || previousQuestion.question_ar, { changes });
+      } else {
+        logActivity("question_create", cleanQuestionFr, { question_ar: cleanQuestionAr, question_fr: cleanQuestionFr, question_type: form.question_type, required: form.required, active: form.active, options_count: options.length });
+      }
       await reloadQuestions(); reset();
     } catch (error) {
       console.error("[survey-admin-save]", error);
@@ -711,6 +943,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
     try {
       const { error } = await supabase.from("survey_questions").update({ active: !q.active }).eq("id", q.id);
       if (error) throw error;
+      logActivity("question_toggle", q.question_fr || q.question_ar, { changes: [{ field: "active", from: q.active, to: !q.active }] });
       await reloadQuestions();
     } catch (error) { console.error("[survey-admin-toggle]", error); setAdminError(error?.message || t.unknownError); }
   };
@@ -721,6 +954,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
     try {
       const { error: questionError } = await supabase.from("survey_questions").delete().eq("id", q.id);
       if (questionError) throw questionError;
+      logActivity("question_delete", q.question_fr || q.question_ar, { question_ar: q.question_ar, question_fr: q.question_fr, question_type: q.question_type });
       await reloadQuestions();
     } catch (error) { console.error("[survey-admin-hard-delete]", error); setAdminError(error?.message || t.unknownError); }
   };
@@ -736,6 +970,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
       if (first.error) throw first.error;
       const second = await supabase.from("survey_questions").update({ sort_order: current.sort_order }).eq("id", target.id);
       if (second.error) throw second.error;
+      logActivity("question_reorder", current.question_fr || current.question_ar, { changes: [{ field: "position", from: index + 1, to: targetIndex + 1 }] });
       await reloadQuestions();
     } catch (error) { console.error("[survey-admin-reorder]", error); setAdminError(error?.message || t.unknownError); }
   };
@@ -773,8 +1008,16 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
       const duplicate = teamMembers.some((member) => member.id !== editingMember && (normalizeForComparison(member.name_ar) === normalizeForComparison(memberForm.name_ar) || normalizeForComparison(member.name_fr) === normalizeForComparison(memberForm.name_fr)));
       if (duplicate) throw new Error(t.duplicateTeamMember);
       const payload = { name_ar: memberForm.name_ar.trim(), name_fr: memberForm.name_fr.trim(), role_ar: memberForm.role_ar.trim(), role_fr: memberForm.role_fr.trim(), image_url: memberForm.image_url.trim() || null, sort_order: Number(memberForm.sort_order) || teamMembers.length + 1, active: memberForm.active };
+      const previousMember = editingMember ? teamMembers.find((member) => member.id === editingMember) : null;
       const response = editingMember ? await supabase.from("team_members").update(payload).eq("id", editingMember) : await supabase.from("team_members").insert(payload);
       if (response.error) throw response.error;
+      if (previousMember) {
+        const changes = [];
+        ["name_ar", "name_fr", "role_ar", "role_fr", "image_url", "sort_order", "active"].forEach((field) => { const before = previousMember[field] ?? ""; const after = payload[field] ?? ""; if (String(before) !== String(after)) changes.push({ field, from: before, to: after }); });
+        logActivity("team_member_update", previousMember.name_fr || previousMember.name_ar, { changes });
+      } else {
+        logActivity("team_member_create", payload.name_fr, { name_ar: payload.name_ar, name_fr: payload.name_fr, role_fr: payload.role_fr });
+      }
       await reloadTeamMembers(); resetMember();
     } catch (error) { console.error("[team-member-save]", error); setAdminError(error?.message || t.unknownError); }
     finally { setSaving(false); }
@@ -786,25 +1029,72 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
     try {
       const { error } = await supabase.from("team_members").update({ active: false }).eq("id", member.id);
       if (error) throw error;
+      logActivity("team_member_disable", member.name_fr || member.name_ar, { changes: [{ field: "active", from: member.active !== false, to: false }] });
       await reloadTeamMembers();
     } catch (error) { console.error("[team-member-delete]", error); setAdminError(error?.message || t.unknownError); }
   };
 
-  const loadLocations = useCallback(async () => {
+  // --- Word export / import of the questions ---------------------------------
+  const downloadQuestionsWord = async () => {
+    setWordBusy(true); setAdminError(null); setWordMessage(null);
     try {
-      const { data, error } = await supabase.from("weather_locations").select("*").order("wilaya");
-      if (error) throw error;
-      setWeatherLocations(data || []);
-    } catch (error) { console.error("[survey-admin-weather]", error); setAdminError(error?.message || t.unknownError); }
-  }, [t.unknownError]);
-  useEffect(() => { if (tab === "weather") loadLocations(); }, [tab, loadLocations]);
+      await exportQuestionsToDocx(questions, survey?.title_fr || "");
+      logActivity("questions_export_word", survey?.title_fr || SURVEY_SLUG, { count: questions.length });
+    } catch (error) { console.error("[questions-word-export]", error); setAdminError(t.wordExportError); }
+    finally { setWordBusy(false); }
+  };
+
+  const handleWordFile = async (file) => {
+    if (!file) return;
+    setWordBusy(true); setAdminError(null); setWordMessage(null); setWordPreview(null);
+    try {
+      const { questions: parsed, errors } = await parseQuestionsFromDocx(file);
+      const seenAr = new Set(questions.map((q) => normalizeForComparison(q.question_ar)));
+      const seenFr = new Set(questions.map((q) => normalizeForComparison(q.question_fr)));
+      const fresh = []; let duplicates = 0;
+      parsed.forEach((item) => {
+        const ar = normalizeForComparison(item.question_ar); const fr = normalizeForComparison(item.question_fr);
+        if (seenAr.has(ar) || seenFr.has(fr)) { duplicates += 1; return; }
+        seenAr.add(ar); seenFr.add(fr); fresh.push(item);
+      });
+      setWordPreview({ fresh, duplicates, errors, fileName: file.name });
+    } catch (error) { console.error("[questions-word-import]", error); setAdminError(t.wordImportError); }
+    finally { setWordBusy(false); }
+  };
+
+  const confirmWordImport = async () => {
+    if (!wordPreview?.fresh?.length) { setWordPreview(null); return; }
+    setWordBusy(true); setAdminError(null); setWordMessage(null);
+    try {
+      const id = await surveyId();
+      let order = Math.max(0, ...questions.map((q) => q.sort_order || 0));
+      let imported = 0;
+      for (const q of wordPreview.fresh) {
+        order += 1;
+        const cleanAr = cleanVisibleText(q.question_ar); const cleanFr = cleanVisibleText(q.question_fr);
+        const { data: inserted, error: qError } = await supabase.from("survey_questions").insert({ survey_id: id, question_ar: cleanAr, question_fr: cleanFr, question_type: q.question_type, required: q.required, active: q.active, sort_order: order }).select("id").single();
+        if (qError) throw qError;
+        if (q.options.length) {
+          const rows = q.options.map(([label_ar, label_fr, value], index) => ({ question_id: inserted.id, label_ar, label_fr, value, sort_order: index + 1 }));
+          const { error: optionsError } = await supabase.from("survey_options").insert(rows);
+          if (optionsError) throw optionsError;
+        }
+        imported += 1;
+      }
+      logActivity("questions_import_word", wordPreview.fileName, { count: imported, questions: wordPreview.fresh.map((q) => q.question_fr) });
+      await reloadQuestions();
+      setWordMessage(`${imported} ${t.wordImported}`);
+      setWordPreview(null);
+    } catch (error) { console.error("[questions-word-confirm]", error); setAdminError(error?.message || t.unknownError); await reloadQuestions().catch(() => {}); }
+    finally { setWordBusy(false); }
+  };
 
   const resultGroups = questions.map((question) => ({ question, data: (results || []).filter((row) => row.question_id === question.id).map((row) => ({ name: lang === "ar" ? row.option_label_ar : row.option_label_fr, value: row.response_count, percentage: row.percentage })) }));
   useEffect(() => { if (tab === "team") reloadTeamMembers().catch((error) => { console.error("[team-members-reload]", error); setAdminError(error?.message || t.unknownError); }); }, [reloadTeamMembers, tab, t.unknownError]);
-  const tabs = [["stats", t.stats], ["questions", t.questions], ["team", t.team], ["results", t.results], ["weather", t.weather]];
+  const tabs = [["stats", t.stats], ["questions", t.questions], ["team", t.team], ["results", t.results], ...(isMainAdmin ? [["activity", t.activity]] : [])];
 
   return <section className="admin-shell">
-    <div className="admin-heading"><div><span className="eyebrow">{t.dashboard}</span><h2>{lang === "ar" ? "إدارة المنصة والنتائج" : "Gestion de la plateforme et des résultats"}</h2><p>{survey?.title_fr || SURVEY_SLUG}</p></div><div className="admin-actions"><button type="button" className="button button-secondary" onClick={handleBackToSurvey}><ChevronLeft size={16} />{t.backSurvey}</button><button type="button" className="button button-secondary" onClick={handleSignOut}><LogOut size={16} />{t.signOut}</button></div></div>
+    <div className="admin-heading"><div><span className="eyebrow">{t.dashboard}</span><h2>{lang === "ar" ? "إدارة المنصة والنتائج" : "Gestion de la plateforme et des résultats"}</h2><p>{survey?.title_fr || SURVEY_SLUG}</p>{adminName && <span className="admin-identity"><ShieldCheck size={13} />{t.adminLoggedAs} <b>{adminName}</b></span>}</div><div className="admin-actions"><button type="button" className="button button-secondary" onClick={handleBackToSurvey}><ChevronLeft size={16} />{t.backSurvey}</button><button type="button" className="button button-secondary" onClick={handleSignOut}><LogOut size={16} />{t.signOut}</button></div></div>
     <div className="stats-grid"><StatCard icon={Users} label={t.participants} value={participants} tone="blue" /><StatCard icon={ClipboardList} label={t.totalQuestions} value={questions.length} tone="navy" /><StatCard icon={CheckCircle2} label={t.activeQuestions} value={activeQuestions} tone="green" /><StatCard icon={TrendingUp} label={t.completion} value={completionRate} tone="gold" /></div>
     <div className="admin-tabs" role="tablist">{tabs.map(([value, label]) => <button type="button" key={value} role="tab" aria-selected={tab === value} className={tab === value ? "is-active" : ""} onClick={() => setTab(value)}>{label}</button>)}</div>
     {adminError && <div className="admin-error"><Info size={16} />{adminError}<button type="button" onClick={() => setAdminError(null)} aria-label={t.cancel}><X size={15} /></button></div>}
@@ -813,6 +1103,27 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
       <p className="stats-subtitle">{t.statsSubtitle}</p>
       <ParticipantStatsPanel lang={lang} t={t} timestamps={responseTimestamps} loading={statsLoading} error={statsError} participants={participants} />
     </div>}
+    {tab === "questions" && <Card className="word-tools-card">
+      <div className="word-tools-head"><div className="title-icon"><FileText size={18} /></div><div><span className="eyebrow">Word (.docx)</span><h3>{t.wordTools}</h3><p>{t.wordToolsText}</p></div></div>
+      <div className="word-tools-actions">
+        <button type="button" className="button button-secondary" onClick={downloadQuestionsWord} disabled={wordBusy || questions.length === 0}><Download size={15} />{t.downloadWord}</button>
+        <label className={`button button-primary word-upload-button${wordBusy ? " is-disabled" : ""}`}><Upload size={15} />{t.uploadWord}<input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={wordBusy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; handleWordFile(file); }} /></label>
+        {wordBusy && <span className="word-busy"><span className="spinner" />{t.wordReading}</span>}
+      </div>
+      {wordMessage && <div className="word-success" role="status"><CheckCircle2 size={15} />{wordMessage}</div>}
+      {wordPreview && <div className="word-preview">
+        <strong>{t.wordPreviewTitle} · {wordPreview.fileName}</strong>
+        <ul>
+          <li><b>{wordPreview.fresh.length}</b> {t.wordPreviewNew}</li>
+          <li><b>{wordPreview.duplicates}</b> {t.wordPreviewDup}</li>
+          {wordPreview.errors.length > 0 && <li><b>{wordPreview.errors.length}</b> {t.wordPreviewErr}</li>}
+        </ul>
+        {wordPreview.fresh.length > 0 && <ol className="word-preview-list">{wordPreview.fresh.map((q, index) => <li key={index}>{cleanVisibleText(lang === "ar" ? q.question_ar : q.question_fr)} <small>({q.question_type})</small></li>)}</ol>}
+        {wordPreview.errors.length > 0 && <ul className="word-preview-errors">{wordPreview.errors.map((message, index) => <li key={index}>{message}</li>)}</ul>}
+        {wordPreview.fresh.length === 0 && <p className="word-preview-empty">{t.wordImportEmpty}</p>}
+        <div className="editor-footer">{wordPreview.fresh.length > 0 && <button type="button" className="button button-primary" onClick={confirmWordImport} disabled={wordBusy}><Save size={15} />{t.wordImportConfirm} ({wordPreview.fresh.length})</button>}<button type="button" className="button button-secondary" onClick={() => setWordPreview(null)} disabled={wordBusy}>{t.cancel}</button></div>
+      </div>}
+    </Card>}
     {tab === "questions" && <div className="admin-content-grid">
             <Card className="question-editor"><div className="editor-title">
 <div><span className="eyebrow">{editing ? t.editQuestion : t.addQuestion}</span><h3>{editing ? t.editQuestion : t.addQuestion}</h3></div>{editing ? <button type="button" className="icon-button" onClick={reset} aria-label={t.cancel}><X size={17} /></button> : <button type="button" className="button button-quiet" onClick={seedDefaultQuestions} disabled={saving}><Sprout size={15} />{t.readyQuestions}</button>}</div>
@@ -838,7 +1149,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
     </div>}
     {tab === "results" && <div className="results-panel"><Card className="results-summary">
 <div className="results-summary-icon"><BarChart3 size={22} /></div><div><span className="eyebrow">{t.results}</span><h3>{participants} {t.participants}</h3><p>{lang === "ar" ? "النتائج المعروضة مجمعة ولا تتضمن أي بيانات شخصية." : "Les résultats sont agrégés et ne contiennent aucune donnée personnelle."}</p></div><button type="button" className="button button-secondary" onClick={loadResults}><RefreshCw size={15} />{lang === "ar" ? "تحديث" : "Actualiser"}</button></Card><div className="result-grid">{resultGroups.map(({ question, data }) => <Card key={question.id}><h3 className="result-question">{cleanVisibleText(lang === "ar" ? question.question_ar : question.question_fr)}</h3><ResultChart data={data} emptyLabel={t.noResults} /></Card>)}</div></div>}
-    {tab === "weather" && <Card><div className="section-title"><div className="title-icon"><CloudRain size={18} /></div><div><span className="eyebrow">{t.weather}</span><h3>{lang === "ar" ? "مناطق بيانات الطقس" : "Régions de données météo"}</h3></div></div>{weatherLocations.length === 0 ? <div className="empty-state"><CloudRain size={28} /><p>{t.noWeather}</p><small>{t.addWeatherHint}</small></div> : <div className="weather-list">{weatherLocations.map((location) => <div key={location.id} className="weather-row"><span>{location.wilaya} — {location.location_name}</span><small>{location.latitude}, {location.longitude}</small></div>)}</div>}</Card>}
+    {tab === "activity" && isMainAdmin && <ActivityLogPanel lang={lang} t={t} rows={activityRows} loading={activityLoading} error={activityError} adminFilter={activityAdminFilter} setAdminFilter={setActivityAdminFilter} typeFilter={activityTypeFilter} setTypeFilter={setActivityTypeFilter} onRefresh={loadActivity} />}
   </section>;
 }
 
@@ -860,8 +1171,13 @@ export default function SondageStandalone() {
   const [session, setSession] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminPromptOpen, setAdminPromptOpen] = useState(false);
-  const [email, setEmail] = useState("");
+  const [selectedAdmin, setSelectedAdmin] = useState("");
   const [password, setPassword] = useState("");
+  const [theme, setTheme] = useState(getInitialTheme);
+  const [editingResponse, setEditingResponse] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [responseUpdated, setResponseUpdated] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
   const clickTimestamps = useRef([]);
@@ -916,6 +1232,13 @@ export default function SondageStandalone() {
   useEffect(() => { loadTeamMembers(); }, [loadTeamMembers]);
   useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = dir; document.title = t.title; }, [dir, lang, t.title]);
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* storage unavailable */ }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", theme === "dark" ? "#070e1a" : "#0b1e39");
+  }, [theme]);
+  const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
+  useEffect(() => {
     let active = true;
     supabase.auth.getSession().then(({ data }) => { if (active) setSession(data.session ?? null); }).catch((authLoadError) => console.error("[auth-session]", authLoadError));
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
@@ -927,6 +1250,11 @@ export default function SondageStandalone() {
     supabase.from("admins").select("id").eq("id", session.user.id).maybeSingle().then(({ data, error: adminLoadError }) => { if (adminLoadError) console.error("[admin-check]", adminLoadError); if (!cancelled) setIsAdmin(!adminLoadError && !!data); }).catch((adminCheckError) => { console.error("[admin-check]", adminCheckError); if (!cancelled) setIsAdmin(false); });
     return () => { cancelled = true; };
   }, [session]);
+
+  const sessionEmail = session?.user?.email || "";
+  const currentAdminProfile = findAdminProfileByEmail(sessionEmail);
+  const currentAdminName = currentAdminProfile?.name || sessionEmail;
+  const isMainAdmin = isAdmin && isMainAdminEmail(sessionEmail);
 
   const loadResults = useCallback(async () => {
     if (!survey) return;
@@ -941,11 +1269,44 @@ export default function SondageStandalone() {
   useEffect(() => { if (mode === "results" && isAdmin) loadResults(); }, [isAdmin, loadResults, mode]);
 
     const updateAnswer = (questionId, value) => { setAnswers((previous) => ({ ...previous, [questionId]: value })); setError(null); };
-  const markSubmissionComplete = () => { try { window.localStorage.setItem(SUBMITTED_STORAGE_KEY, "true"); } catch (storageError) { console.warn("[survey-submission-storage]", storageError); } setSubmitted(true); };
+  const markSubmissionComplete = () => { setEditError(null); try { window.localStorage.setItem(SUBMITTED_STORAGE_KEY, "true"); } catch (storageError) { console.warn("[survey-submission-storage]", storageError); } setSubmitted(true); };
   const handleTitleClick = () => {
  const now = Date.now(); clickTimestamps.current = clickTimestamps.current.filter((timestamp) => now - timestamp < ADMIN_TRIGGER_WINDOW_MS); clickTimestamps.current.push(now); if (clickTimestamps.current.length >= ADMIN_TRIGGER_CLICKS) { clickTimestamps.current = []; setAdminPromptOpen(true); setAuthError(null); } };
   const handleNext = () => { if (!requiredAnswered(currentQuestion)) { setError(t.requiredCurrent); return; } setError(null); setCurrentStep((step) => Math.min(step + 1, questions.length - 1)); };
   const handlePrevious = () => { setError(null); setCurrentStep((step) => Math.max(step - 1, 0)); };
+
+  // Reload the respondent's previous answers so they can edit them after sending.
+  const startEditResponse = async () => {
+    if (!survey) return;
+    setEditLoading(true); setEditError(null);
+    try {
+      const { data, error: rpcError } = await supabase.rpc("get_my_survey_answers", { p_survey_id: String(survey.id), p_respondent_id: getRespondentId() });
+      if (rpcError) throw rpcError;
+      const rows = Array.isArray(data) ? data : [];
+      if (!rows.length) throw new Error("NO_PREVIOUS_ANSWERS");
+      const restored = {};
+      questions.forEach((q) => {
+        const mine = rows.filter((row) => String(row.question_id) === String(q.id));
+        if (!mine.length) return;
+        if (q.question_type === "single_choice") {
+          const option = q.options.find((o) => o.value === mine[0].answer_value);
+          if (option) restored[q.id] = option.id;
+        } else if (q.question_type === "multiple_choice") {
+          const ids = mine.map((row) => q.options.find((o) => o.value === row.answer_value)?.id).filter((id) => id !== undefined);
+          if (ids.length) restored[q.id] = ids;
+        } else {
+          restored[q.id] = mine[0].answer_value ?? mine[0].answer_text ?? "";
+        }
+      });
+      setAnswers(restored);
+      setResponseUpdated(false);
+      setEditingResponse(true); setStarted(true); setCurrentStep(0); setError(null);
+    } catch (editLoadError) {
+      console.error("[survey-edit-load]", editLoadError);
+      setEditError(t.editUnavailable);
+    } finally { setEditLoading(false); }
+  };
+  const cancelEditResponse = () => { setEditingResponse(false); setStarted(false); setCurrentStep(0); setError(null); };
 
   const handleSubmit = async () => {
     if (!allAnswered || !survey) { setError(t.requiredAll); return; }
@@ -954,6 +1315,12 @@ export default function SondageStandalone() {
       const respondentId = getRespondentId();
       const responseId = crypto.randomUUID();
       const payload = questions.flatMap((q) => { const value = answers[q.id]; const values = Array.isArray(value) ? value : [value]; return values.filter((item) => item !== undefined && item !== null && String(item).trim() !== "").map((item) => { const option = q.options.find((o) => o.id === item); return { question_id: q.id, answer_value: option?.value ?? String(item), answer_text: option ? oText(option) : String(item) }; }); });
+      if (editingResponse) {
+        const { error: updateError } = await supabase.rpc("update_survey_response", { p_survey_id: String(survey.id), p_respondent_id: respondentId, p_question_ids: questions.map((q) => String(q.id)), p_answers: payload });
+        if (updateError) throw updateError;
+        setEditingResponse(false); setResponseUpdated(true); markSubmissionComplete();
+        return;
+      }
       const { data: rpcResponseId, error: rpcError } = await supabase.rpc("submit_survey_response", { p_survey_id: survey.id, p_respondent_id: respondentId, p_answers: payload });
       if (!rpcError && rpcResponseId) { markSubmissionComplete(); return; }
       if (String(rpcError?.message || "").includes("DUPLICATE_RESPONSE")) { markSubmissionComplete(); setError(t.duplicate); return; }
@@ -970,29 +1337,33 @@ export default function SondageStandalone() {
   const handleAdminLogin = async () => {
     setAuthBusy(true); setAuthError(null);
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const profile = ADMIN_PROFILES.find((item) => item.key === selectedAdmin);
+      if (!profile) { const noProfile = new Error("NO_PROFILE"); noProfile.userMessage = t.adminChooseName; throw noProfile; }
+      if (!profile.email) { const noEmail = new Error("NO_EMAIL"); noEmail.userMessage = t.adminEmailMissing; throw noEmail; }
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email: profile.email, password });
       if (signInError || !data.session) throw signInError || new Error("NO_SESSION");
       const { data: adminRow, error: adminErrorResponse } = await supabase.from("admins").select("id").eq("id", data.session.user.id).maybeSingle();
       if (adminErrorResponse || !adminRow) { await supabase.auth.signOut(); throw adminErrorResponse || new Error("NOT_ADMIN"); }
-      setSession(data.session); setIsAdmin(true); setMode("results"); setAdminPromptOpen(false); setEmail(""); setPassword("");
-    } catch (loginError) { console.error("[admin-login]", loginError); setAuthError(t.adminWrong); }
+      await logAdminActivity(supabase, "login", profile.name, { email: profile.email, user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "" });
+      setSession(data.session); setIsAdmin(true); setMode("results"); setAdminPromptOpen(false); setSelectedAdmin(""); setPassword("");
+    } catch (loginError) { console.error("[admin-login]", loginError); setAuthError(loginError?.userMessage || t.adminWrong); }
     finally { setAuthBusy(false); }
   };
-  const handleSignOut = async () => { try { await supabase.auth.signOut(); } catch (signOutError) { console.error("[admin-signout]", signOutError); } setIsAdmin(false); setSession(null); setMode("form"); };
+  const handleSignOut = async () => { try { await logAdminActivity(supabase, "logout", currentAdminName, {}); await supabase.auth.signOut(); } catch (signOutError) { console.error("[admin-signout]", signOutError); } setIsAdmin(false); setSession(null); setMode("form"); };
 
   return <div dir={dir} className="app-shell">
-    <header className="site-header"><div className="header-inner"><button type="button" className="brand-button" onClick={handleTitleClick} aria-label="ISCAE"><span className="brand-mark institute-logo"><img src="/iscae-official-logo.jpeg" alt="شعار المعهد" /></span><span><strong>{t.institute}</strong><small>{t.kicker}</small></span></button><div className="header-actions"><button type="button" className="language-switcher" onClick={() => setLang((current) => current === "fr" ? "ar" : "fr")} aria-label={lang === "fr" ? "Changer la langue vers l’arabe" : "تغيير اللغة إلى الفرنسية"}><span className="language-switcher-icon"><Languages size={16} /></span><span className="language-current">{lang === "fr" ? "FR" : "AR"}</span><span className="language-next">{lang === "fr" ? "العربية" : "Français"}</span><ChevronDown size={13} /></button>{isAdmin && <button type="button" className="header-admin-button" onClick={() => setMode("results")}><BarChart3 size={15} />{t.dashboard}</button>}</div></div></header>
+    <header className="site-header"><div className="header-inner"><button type="button" className="brand-button" onClick={handleTitleClick} aria-label="ISCAE"><span className="brand-mark institute-logo"><img src="/iscae-official-logo.jpeg" alt="شعار المعهد" /></span><span><strong>{t.institute}</strong><small>{t.kicker}</small></span></button><div className="header-actions"><button type="button" className="language-switcher" onClick={() => setLang((current) => current === "fr" ? "ar" : "fr")} aria-label={lang === "fr" ? "Changer la langue vers l’arabe" : "تغيير اللغة إلى الفرنسية"}><span className="language-switcher-icon"><Languages size={16} /></span><span className="language-current">{lang === "fr" ? "FR" : "AR"}</span><span className="language-next">{lang === "fr" ? "العربية" : "Français"}</span><ChevronDown size={13} /></button><button type="button" className="theme-toggle" onClick={toggleTheme} aria-pressed={theme === "dark"} aria-label={theme === "dark" ? t.lightMode : t.darkMode} title={theme === "dark" ? t.lightMode : t.darkMode}>{theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}</button>{isAdmin && <button type="button" className="header-admin-button" onClick={() => setMode("results")}><BarChart3 size={15} />{t.dashboard}</button>}</div></div></header>
     <main className="page-wrap">
       {loadingSurvey && <div className="loading-state"><span className="spinner" />{t.loading}</div>}
       {!loadingSurvey && error && !currentQuestion && !submitted && <ErrorNotice message={error} onRetry={loadSurvey} lang={lang} />}
       {!loadingSurvey && error && !currentQuestion && submitted && <section className="already-submitted-screen"><div className="already-submitted-icon"><CheckCircle2 size={30} /></div><span className="eyebrow">{t.alreadySubmittedTitle}</span><h1>{t.alreadySubmittedTitle}</h1><p>{t.alreadySubmittedText}</p><div className="submission-lock"><LockKeyhole size={15} />{t.submittedLock}</div></section>}
-      {!loadingSurvey && mode === "form" && !submitted && <>
+      {!loadingSurvey && mode === "form" && (!submitted || editingResponse) && <>
         {!started && <section className="hero-section"><div className="hero-copy"><span className="academic-badge"><Sun size={15} />{t.badge}</span><h1>{t.title}</h1><p className="hero-subtitle">{t.subtitle}</p><p className="hero-intro">{t.intro}</p><div className="hero-meta"><span><ClipboardList size={16} />{questions.length} {t.questionsCount}</span><span><Zap size={16} />{t.duration}</span></div><button type="button" className="button button-primary hero-cta" disabled={!questions.length} onClick={() => { setStarted(true); setCurrentStep(0); }}>{t.start}<span className="directional-icon">{lang === "ar" ? <ChevronLeft size={19} /> : <ChevronRight size={19} />}</span></button></div><div className="hero-visual"><div className="visual-orbit orbit-one" /><div className="visual-orbit orbit-two" /><div className="visual-card"><div className="visual-icon project-logo-wrap"><img src="/iscae-solar-payg-logo.svg" alt="شعار فكرة المشروع" /></div><span>{lang === "ar" ? "الطاقة الشمسية PAYG" : "Énergie solaire PAYG"}</span><small>{lang === "ar" ? "الطاقة · التمويل · الدفع عبر المحمول" : "Énergie · financement · paiement mobile"}</small></div><div className="visual-pulse"><ShieldCheck size={20} /></div></div></section>}
-        {started && currentQuestion && <section className="survey-flow"><div className="survey-topline"><div><span className="eyebrow">{t.question} {currentStep + 1} {t.of} {questions.length}</span><strong>{progress}%</strong></div><span>{t.progress}</span></div><div className="progress-track"><span style={{ width: `${progress}%` }} /></div><Card className="question-card"><div className="question-card-head"><span className="question-number">{String(currentStep + 1).padStart(2, "0")}</span><div><span className="question-kicker">{t.question} {currentStep + 1}</span><span className={`question-badge ${currentQuestion.required ? "required" : "optional"}`}>{currentQuestion.required ? t.required : t.optional}</span></div></div><h2>{qText(currentQuestion)}</h2>{currentQuestion.question_type === "text" && <textarea value={answers[currentQuestion.id] ?? ""} onChange={(e) => updateAnswer(currentQuestion.id, e.target.value)} placeholder={t.textPlaceholder} rows={6} autoFocus />}{currentQuestion.question_type === "number" && <input type="number" inputMode="numeric" value={answers[currentQuestion.id] ?? ""} onChange={(e) => updateAnswer(currentQuestion.id, e.target.value)} placeholder={t.numberPlaceholder} autoFocus />}{currentQuestion.question_type === "single_choice" && <div className="choices-grid">{currentQuestion.options.map((option) => <ChoiceCard key={option.id} option={option} selected={answers[currentQuestion.id] === option.id} label={oText(option)} onClick={() => updateAnswer(currentQuestion.id, option.id)} />)}</div>}{currentQuestion.question_type === "multiple_choice" && <div className="choices-grid">{currentQuestion.options.map((option) => { const selected = Array.isArray(answers[currentQuestion.id]) && answers[currentQuestion.id].includes(option.id); return <ChoiceCard key={option.id} option={option} multiple selected={selected} label={oText(option)} onClick={() => { const current = Array.isArray(answers[currentQuestion.id]) ? answers[currentQuestion.id] : []; updateAnswer(currentQuestion.id, selected ? current.filter((id) => id !== option.id) : [...current, option.id]); }} />; })}</div>}{error && <div className="inline-error" role="alert"><Info size={16} />{error}</div>}</Card><div className="survey-navigation"><button type="button" className="button button-secondary" onClick={handlePrevious} disabled={currentStep === 0}><span className="directional-icon">{lang === "ar" ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}</span>{t.previous}</button>{currentStep < questions.length - 1 ? <button type="button" className="button button-primary" onClick={handleNext}>{t.next}<span className="directional-icon">{lang === "ar" ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}</span></button> : <button type="button" className="button button-primary" onClick={handleSubmit} disabled={submitting}>{submitting ? t.submitting : t.submit}<CheckCircle2 size={17} /></button>}</div><p className="privacy-note"><LockKeyhole size={14} />{t.anonymous}</p></section>}
+        {started && currentQuestion && <section className="survey-flow">{editingResponse && <div className="edit-banner" role="status"><Pencil size={16} /><span>{t.editBanner}</span><button type="button" className="text-button" onClick={cancelEditResponse}>{t.cancelEdit}</button></div>}<div className="survey-topline"><div><span className="eyebrow">{t.question} {currentStep + 1} {t.of} {questions.length}</span><strong>{progress}%</strong></div><span>{t.progress}</span></div><div className="progress-track"><span style={{ width: `${progress}%` }} /></div><Card className="question-card"><div className="question-card-head"><span className="question-number">{String(currentStep + 1).padStart(2, "0")}</span><div><span className="question-kicker">{t.question} {currentStep + 1}</span><span className={`question-badge ${currentQuestion.required ? "required" : "optional"}`}>{currentQuestion.required ? t.required : t.optional}</span></div></div><h2>{qText(currentQuestion)}</h2>{currentQuestion.question_type === "text" && <textarea value={answers[currentQuestion.id] ?? ""} onChange={(e) => updateAnswer(currentQuestion.id, e.target.value)} placeholder={t.textPlaceholder} rows={6} autoFocus />}{currentQuestion.question_type === "number" && <input type="number" inputMode="numeric" value={answers[currentQuestion.id] ?? ""} onChange={(e) => updateAnswer(currentQuestion.id, e.target.value)} placeholder={t.numberPlaceholder} autoFocus />}{currentQuestion.question_type === "single_choice" && <div className="choices-grid">{currentQuestion.options.map((option) => <ChoiceCard key={option.id} option={option} selected={answers[currentQuestion.id] === option.id} label={oText(option)} onClick={() => updateAnswer(currentQuestion.id, option.id)} />)}</div>}{currentQuestion.question_type === "multiple_choice" && <div className="choices-grid">{currentQuestion.options.map((option) => { const selected = Array.isArray(answers[currentQuestion.id]) && answers[currentQuestion.id].includes(option.id); return <ChoiceCard key={option.id} option={option} multiple selected={selected} label={oText(option)} onClick={() => { const current = Array.isArray(answers[currentQuestion.id]) ? answers[currentQuestion.id] : []; updateAnswer(currentQuestion.id, selected ? current.filter((id) => id !== option.id) : [...current, option.id]); }} />; })}</div>}{error && <div className="inline-error" role="alert"><Info size={16} />{error}</div>}</Card><div className="survey-navigation"><button type="button" className="button button-secondary" onClick={handlePrevious} disabled={currentStep === 0}><span className="directional-icon">{lang === "ar" ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}</span>{t.previous}</button>{currentStep < questions.length - 1 ? <button type="button" className="button button-primary" onClick={handleNext}>{t.next}<span className="directional-icon">{lang === "ar" ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}</span></button> : <button type="button" className="button button-primary" onClick={handleSubmit} disabled={submitting}>{submitting ? t.submitting : (editingResponse ? t.saveEdit : t.submit)}<CheckCircle2 size={17} /></button>}</div><p className="privacy-note"><LockKeyhole size={14} />{t.anonymous}</p></section>}
       </>}
-      {!loadingSurvey && mode === "form" && submitted && !error && <section className="success-screen"><div className="success-icon"><Check size={35} strokeWidth={3} /></div><span className="eyebrow">{lang === "ar" ? "تم الإرسال بنجاح" : "Réponse enregistrée"}</span><h1>{t.thanksTitle}</h1><p>{t.thanksText}</p><div className="submission-lock"><LockKeyhole size={15} />{t.submittedLock}</div></section>}
-      {adminPromptOpen && !isAdmin && <Card className="admin-login"><div className="section-title"><div className="title-icon"><LockKeyhole size={18} /></div><div><span className="eyebrow">ISCAE</span><h2>{t.adminTitle}</h2></div><button type="button" className="icon-button" onClick={() => setAdminPromptOpen(false)} aria-label={t.adminBack}><X size={17} /></button></div><label><span>{t.emailLabel}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label><label><span>{t.passwordLabel}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAdminLogin(); }} autoComplete="current-password" /></label>{authError && <div className="inline-error"><Info size={16} />{authError}</div>}<div className="login-actions"><button type="button" className="button button-primary" onClick={handleAdminLogin} disabled={authBusy}>{authBusy ? "…" : t.adminSubmit}</button><button type="button" className="button button-secondary" onClick={() => setAdminPromptOpen(false)}>{t.adminBack}</button></div></Card>}
-      {mode === "results" && isAdmin && <AdminDashboard survey={survey} questions={questions} setQuestions={setQuestions} lang={lang} t={t} loadResults={loadResults} results={results} participants={participants} handleSignOut={handleSignOut} handleBackToSurvey={() => setMode("form")} teamMembers={teamMembers} setTeamMembers={setTeamMembers} />}
+      {!loadingSurvey && mode === "form" && submitted && !editingResponse && !error && <section className="success-screen"><div className="success-icon"><Check size={35} strokeWidth={3} /></div><span className="eyebrow">{responseUpdated ? t.updatedEyebrow : (lang === "ar" ? "تم الإرسال بنجاح" : "Réponse enregistrée")}</span><h1>{t.thanksTitle}</h1><p>{responseUpdated ? t.updatedText : t.thanksText}</p><div className="submission-lock"><LockKeyhole size={15} />{t.submittedLock}</div><div className="success-actions"><button type="button" className="button button-secondary" onClick={startEditResponse} disabled={editLoading || !survey || questions.length === 0}><Pencil size={15} />{editLoading ? t.editLoading : t.editAnswer}</button></div>{editError && <div className="inline-error" role="alert"><Info size={16} />{editError}</div>}</section>}
+      {adminPromptOpen && !isAdmin && <Card className="admin-login"><div className="section-title"><div className="title-icon"><LockKeyhole size={18} /></div><div><span className="eyebrow">ISCAE</span><h2>{t.adminTitle}</h2></div><button type="button" className="icon-button" onClick={() => setAdminPromptOpen(false)} aria-label={t.adminBack}><X size={17} /></button></div><label><span>{t.adminNameLabel}</span><select value={selectedAdmin} onChange={(e) => { setSelectedAdmin(e.target.value); setAuthError(null); }} autoComplete="username"><option value="">{t.adminNamePlaceholder}</option>{ADMIN_PROFILES.map((profile) => <option key={profile.key} value={profile.key}>{profile.name}</option>)}</select></label><label><span>{t.passwordLabel}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAdminLogin(); }} autoComplete="current-password" /></label>{authError && <div className="inline-error"><Info size={16} />{authError}</div>}<div className="login-actions"><button type="button" className="button button-primary" onClick={handleAdminLogin} disabled={authBusy}>{authBusy ? "…" : t.adminSubmit}</button><button type="button" className="button button-secondary" onClick={() => setAdminPromptOpen(false)}>{t.adminBack}</button></div></Card>}
+      {mode === "results" && isAdmin && <AdminDashboard survey={survey} questions={questions} setQuestions={setQuestions} lang={lang} t={t} loadResults={loadResults} results={results} participants={participants} handleSignOut={handleSignOut} handleBackToSurvey={() => setMode("form")} teamMembers={teamMembers} setTeamMembers={setTeamMembers} adminName={currentAdminName} isMainAdmin={isMainAdmin} />}
       {mode === "form" && <TeamSection members={teamMembers} lang={lang} />}
     </main>
     <footer className="site-footer"><div className="footer-brand"><img src="/iscae-official-logo.jpeg" alt="شعار المعهد" /><span><strong>{t.institute}</strong><small>{t.footer}</small></span></div><div className="footer-credit"><span>{t.developedBy}</span><b>MDA</b></div></footer>
