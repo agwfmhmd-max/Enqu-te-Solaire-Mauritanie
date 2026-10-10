@@ -13,3 +13,10 @@ Exécuter `npm install` puis `npm run build` avant le déploiement.
 
 ## Intégration étude de marché
 La migration `MARKET_VALIDATION_QUESTIONS.sql` ajoute les tranches de revenu et les seuils de prix acceptables. Le prototype lit les vues agrégées Supabase du même sondage, affiche les résultats de l’échantillon et distingue les hypothèses du modèle. Le paiement mobile et le scoring restent des simulations de faisabilité.
+
+## Administration (mise à jour)
+- Connexion responsable : choix du nom dans la liste (MDA, ELHOUSSEIN, TOUTOU, NEINE, ENCADREMENT) + mot de passe Supabase de l’e-mail associé (`src/lib/adminProfiles.js`).
+- Journal d’activité (connexions, modifications) visible uniquement par MDA.
+- Questions : téléchargement / import au format Word (.docx).
+- Mode sombre, modification d’une réponse déjà envoyée.
+- Exécuter `ADMIN_SECURITY_AND_FEATURES.sql` une fois dans Supabase avant utilisation.
