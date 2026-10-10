@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BarChart3, Calendar, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, CloudRain, Eye, EyeOff, Globe2, GripVertical, ImagePlus, Info, Languages, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, Save, ShieldCheck, Sprout, Trash2, TrendingUp, UserPlus, Users, UsersRound, X } from "lucide-react";
 import { supabase } from "./lib/supabaseClient";
 import TeamSection from "./components/TeamSection.jsx";
+import { isMainAdminEmail } from "./lib/adminProfiles";
 
 const COLORS = {
   navy: "#0b1e39",
@@ -567,7 +568,7 @@ function ParticipantStatsPanel({ lang, t, timestamps, loading, error, participan
   );
 }
 
-function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults, results, participants, handleSignOut, handleBackToSurvey, teamMembers, setTeamMembers }) {
+function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults, results, participants, handleSignOut, handleBackToSurvey, teamMembers, setTeamMembers, isMainAdmin }) {
   const [tab, setTab] = useState("stats");
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -795,8 +796,9 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
   useEffect(() => { if (tab === "weather") loadLocations(); }, [tab, loadLocations]);
 
   const resultGroups = questions.map((question) => ({ question, data: (results || []).filter((row) => row.question_id === question.id).map((row) => ({ name: lang === "ar" ? row.option_label_ar : row.option_label_fr, value: row.response_count, percentage: row.percentage })) }));
-  useEffect(() => { if (tab === "team") reloadTeamMembers().catch((error) => { console.error("[team-members-reload]", error); setAdminError(error?.message || t.unknownError); }); }, [reloadTeamMembers, tab, t.unknownError]);
-  const tabs = [["stats", t.stats], ["questions", t.questions], ["team", t.team], ["results", t.results], ["weather", t.weather]];
+  useEffect(() => { if (!isMainAdmin && tab === "team") setTab("stats"); }, [isMainAdmin, tab]);
+  useEffect(() => { if (tab === "team" && isMainAdmin) reloadTeamMembers().catch((error) => { console.error("[team-members-reload]", error); setAdminError(error?.message || t.unknownError); }); }, [isMainAdmin, reloadTeamMembers, tab, t.unknownError]);
+  const tabs = [["stats", t.stats], ["questions", t.questions], ...(isMainAdmin ? [["team", t.team]] : []), ["results", t.results], ["weather", t.weather]];
 
   return <section className="admin-shell">
     <div className="admin-heading"><div><span className="eyebrow">{t.dashboard}</span><h2>{lang === "ar" ? "إدارة المنصة والنتائج" : "Gestion de la plateforme et des résultats"}</h2><p>{survey?.title_fr || SURVEY_SLUG}</p></div><div className="admin-actions"><button type="button" className="button button-secondary" onClick={handleBackToSurvey}><ChevronLeft size={16} />{t.backSurvey}</button><button type="button" className="button button-secondary" onClick={handleSignOut}><LogOut size={16} />{t.signOut}</button></div></div>
@@ -821,7 +823,7 @@ function AdminDashboard({ survey, questions, setQuestions, lang, t, loadResults,
 <div className="empty-state"><ClipboardList size={28} /><p>{t.noQuestions}</p></div></Card>}{questions.map((q, index) => <Card key={q.id} className={!q.active ? "is-muted" : ""}><div className="question-row"><GripVertical className="drag-icon" size={17} /><div className="question-row-copy"><span className="question-index">{String(index + 1).padStart(2, "0")}</span><strong>{cleanVisibleText(lang === "ar" ? q.question_ar : q.question_fr)}</strong><small>{q.question_type} · {q.required ? t.required : t.optional} · {q.active ? t.active : t.inactive}{(duplicateQuestionIds.has(q.id) || duplicateOptionQuestionIds.has(q.id)) && <em className="duplicate-badge">{t.duplicateBadge}</em>}</small>
 </div><div className="row-actions"><button type="button" className="icon-button" onClick={() => moveQuestion(q, -1)} disabled={index === 0} aria-label={t.moveUp}><ChevronLeft className="rotate-90" size={15} /></button><button type="button" className="icon-button" onClick={() => moveQuestion(q, 1)} disabled={index === questions.length - 1} aria-label={t.moveDown}><ChevronRight className="rotate-90" size={15} /></button><button type="button" className="icon-button" onClick={() => startEdit(q)} aria-label={t.editQuestion}><Pencil size={15} /></button><button type="button" className="icon-button" onClick={() => toggleQuestion(q)} aria-label={q.active ? t.disable : t.enable}>{q.active ? <EyeOff size={15} /> : <Eye size={15} />}</button><button type="button" className="icon-button danger" onClick={() => deleteQuestion(q)} aria-label={t.delete}><Trash2 size={15} /></button></div></div></Card>)}</div>
         </div>}
-    {tab === "team" && <div className="team-admin-panel">
+    {tab === "team" && isMainAdmin && <div className="team-admin-panel">
       <Card className="member-editor"><div className="editor-title"><div><span className="eyebrow">{editingMember ? t.editMember : t.addMember}</span><h3>{editingMember ? t.editMember : t.addMember}</h3></div>{editingMember ? <button type="button" className="icon-button" onClick={resetMember} aria-label={t.cancel}><X size={17} /></button> : <UserPlus size={22} className="member-editor-mark" />}</div>
         <div className="field-grid"><label><span>{t.memberNameAr}</span><input value={memberForm.name_ar} onChange={(e) => setMemberForm({ ...memberForm, name_ar: e.target.value })} dir="rtl" placeholder="اسم العضو" /></label><label><span>{t.memberNameFr}</span><input value={memberForm.name_fr} onChange={(e) => setMemberForm({ ...memberForm, name_fr: e.target.value })} placeholder="Nom du membre" /></label></div>
         <div className="field-grid"><label><span>{t.memberRoleAr}</span><input value={memberForm.role_ar} onChange={(e) => setMemberForm({ ...memberForm, role_ar: e.target.value })} dir="rtl" placeholder="الدور أو التخصص" /></label><label><span>{t.memberRoleFr}</span><input value={memberForm.role_fr} onChange={(e) => setMemberForm({ ...memberForm, role_fr: e.target.value })} placeholder="Rôle ou spécialité" /></label></div>
@@ -923,6 +925,9 @@ export default function SondageStandalone() {
     return () => { cancelled = true; };
   }, [session]);
 
+  const sessionEmail = session?.user?.email || "";
+  const isMainAdmin = isAdmin && isMainAdminEmail(sessionEmail);
+
   const loadResults = useCallback(async () => {
     if (!survey) return;
     try {
@@ -987,7 +992,7 @@ export default function SondageStandalone() {
       </>}
       {!loadingSurvey && mode === "form" && submitted && !error && <section className="success-screen"><div className="success-icon"><Check size={35} strokeWidth={3} /></div><span className="eyebrow">{lang === "ar" ? "تم الإرسال بنجاح" : "Réponse enregistrée"}</span><h1>{t.thanksTitle}</h1><p>{t.thanksText}</p><div className="submission-lock"><LockKeyhole size={15} />{t.submittedLock}</div></section>}
       {adminPromptOpen && !isAdmin && <Card className="admin-login"><div className="section-title"><div className="title-icon"><LockKeyhole size={18} /></div><div><span className="eyebrow">ISCAE</span><h2>{t.adminTitle}</h2></div><button type="button" className="icon-button" onClick={() => setAdminPromptOpen(false)} aria-label={t.adminBack}><X size={17} /></button></div><label><span>{t.emailLabel}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label><label><span>{t.passwordLabel}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleAdminLogin(); }} autoComplete="current-password" /></label>{authError && <div className="inline-error"><Info size={16} />{authError}</div>}<div className="login-actions"><button type="button" className="button button-primary" onClick={handleAdminLogin} disabled={authBusy}>{authBusy ? "…" : t.adminSubmit}</button><button type="button" className="button button-secondary" onClick={() => setAdminPromptOpen(false)}>{t.adminBack}</button></div></Card>}
-      {mode === "results" && isAdmin && <AdminDashboard survey={survey} questions={questions} setQuestions={setQuestions} lang={lang} t={t} loadResults={loadResults} results={results} participants={participants} handleSignOut={handleSignOut} handleBackToSurvey={() => setMode("form")} teamMembers={teamMembers} setTeamMembers={setTeamMembers} />}
+      {mode === "results" && isAdmin && <AdminDashboard survey={survey} questions={questions} setQuestions={setQuestions} lang={lang} t={t} loadResults={loadResults} results={results} participants={participants} handleSignOut={handleSignOut} handleBackToSurvey={() => setMode("form")} teamMembers={teamMembers} setTeamMembers={setTeamMembers} isMainAdmin={isMainAdmin} />}
       {mode === "form" && <TeamSection members={teamMembers} lang={lang} />}
     </main>
     <footer className="site-footer"><div className="footer-brand"><img src="/iscae-official-logo.jpeg" alt="شعار المعهد" /><span><strong>{t.institute}</strong><small>{t.footer}</small></span></div><div className="footer-credit"><span>{t.developedBy}</span><b>MDA</b></div></footer>
